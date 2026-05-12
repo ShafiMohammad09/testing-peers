@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --config /etc/livekit.yaml
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+      - "50000-50050:50000-50050/udp"
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+  backend:
+    build: ./server
+    ports:
+      - "3000:3000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - LIVEKIT_API_KEY=devkey
+      - LIVEKIT_API_SECRET=secret
+      - LIVEKIT_URL=ws://livekit:7880
+    depends_on:
+      - redis
+      - livekit
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./public:/usr/share/nginx/html:ro
