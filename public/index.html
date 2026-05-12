@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Mock Interview MVP</title>
+  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+  <!-- LiveKit SDK via unpkg or bundled -->
+  <script src="https://unpkg.com/livekit-client/dist/livekit-client.umd.min.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    #video-container {
+      display: none;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    video {
+      width: 400px;
+      height: 300px;
+      background: #333;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Mock Interview Platform</h1>
+
+  <div id="setup-container">
+    <p>Select a slot to join the pool:</p>
+    <select id="slot-select">
+      <option value="10am">10:00 AM</option>
+      <option value="12pm">12:00 PM</option>
+      <option value="2pm">2:00 PM</option>
+    </select>
+    <button id="join-btn">Join Pool</button>
+  </div>
+
+  <div id="status"></div>
+
+  <div id="video-container">
+    <div>
+      <h3>Local Video</h3>
+      <video id="local-video" autoplay muted></video>
+    </div>
+    <div>
+      <h3>Remote Video</h3>
+      <video id="remote-video" autoplay></video>
+    </div>
+  </div>
+
+  <script>
+    // Use dynamic hostname based on where the app is being served
+    const host = window.location.hostname;
+
+    // Connect to Node.js backend
+    const socket = io(`http://${host}:3000`);
+
+    // Connect to LiveKit server
+    const livekitUrl = `ws://${host}:7880`;
+
+    const setupContainer = document.getElementById('setup-container');
+    const joinBtn = document.getElementById('join-btn');
+    const slotSelect = document.getElementById('slot-select');
+    const statusDiv = document.getElementById('status');
+    const videoContainer = document.getElementById('video-container');
+
+    joinBtn.addEventListener('click', () => {
+      const slot = slotSelect.value;
+      socket.emit('join_slot', { slot });
+      statusDiv.innerText = `Waiting for a match in the ${slot} slot... (Open another tab to join and match)`;
+      setupContainer.style.display = 'none';
+    });
+
+    socket.on('matched', async (data) => {
+      statusDiv.innerText = `Matched! Room: ${data.roomName} | Role: ${data.role}`;
+      videoContainer.style.display = 'flex';
+
+      await connectToLiveKit(data.roomName, data.token);
+    });
+
+    async function connectToLiveKit(roomName, token) {
+      // livekit-client exposes LivekitClient globally in UMD builds
+      const { Room, RoomEvent, createLocalVideoTrack, createLocalAudioTrack } = window.LivekitClient;
+
+      const room = new Room();
+
+      // Handle remote tracks
+      room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
+        if (track.kind === 'video' || track.kind === 'audio') {
+          const element = track.attach();
+          if (track.kind === 'video') {
+            const remoteVideo = document.getElementById('remote-video');
+            remoteVideo.srcObject = element.srcObject;
+          } else {
+            document.body.appendChild(element); // Just append audio to body
+          }
+        }
+      });
+
+      // Connect
+      await room.connect(livekitUrl, token);
+      console.log('Connected to LiveKit room:', room.name);
+
+      // Publish local tracks
+      const localVideo = await createLocalVideoTrack();
+      const localAudio = await createLocalAudioTrack();
+
+      await room.localParticipant.publishTrack(localVideo);
+      await room.localParticipant.publishTrack(localAudio);
+
+      // Attach local video to UI
+      const localVidElement = document.getElementById('local-video');
+      localVidElement.srcObject = localVideo.attach().srcObject;
+    }
+  </script>
+</body>
+</html>
